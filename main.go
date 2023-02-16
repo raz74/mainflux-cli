@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 	"gorm.io/gorm"
@@ -10,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -29,9 +31,12 @@ func newPostgresRepo(DB *gorm.DB) *postgresRepo {
 
 func setUpRouts(h *postgresRepo) {
 	e := echo.New()
+
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+	e.Static("/static", "static")
 
+	e.GET("/create-file/:id", h.DownloadFile)
 	e.POST("/create-file", h.uploadFile)
 	e.Logger.Fatal(e.Start(":8000"))
 }
@@ -54,7 +59,7 @@ func (p *postgresRepo) uploadFile(c echo.Context) error {
 	defer func(src multipart.File) {
 		err := src.Close()
 		if err != nil {
-
+			return
 		}
 	}(src)
 
@@ -66,7 +71,7 @@ func (p *postgresRepo) uploadFile(c echo.Context) error {
 	defer func(dst *os.File) {
 		err := dst.Close()
 		if err != nil {
-
+			return
 		}
 	}(dst)
 
@@ -76,7 +81,7 @@ func (p *postgresRepo) uploadFile(c echo.Context) error {
 	}
 
 	newFile, err := p.createFile(req)
-	return c.JSON(http.StatusOK, newFile)
+	return c.String(http.StatusCreated, strconv.Itoa(newFile.Id))
 }
 
 func (p *postgresRepo) createFile(req models.CreateFileReq) (*models.File, error) {
@@ -91,4 +96,14 @@ func (p *postgresRepo) createFile(req models.CreateFileReq) (*models.File, error
 		return nil, echo.ErrBadRequest
 	}
 	return newFile, nil
+}
+
+func (p *postgresRepo) DownloadFile(c echo.Context) error {
+	id := c.Param("id")
+	var file *models.File
+	err := p.DB.Where("id= ?", id).Find(&file)
+	if err != nil {
+		return errors.New("this file is not exist")
+	}
+	return c.Redirect(http.StatusTemporaryRedirect, file.Name)
 }
